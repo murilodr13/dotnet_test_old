@@ -1,7 +1,8 @@
 pipeline {
     agent {
         docker {
-            image 'mcr.microsoft.com/dotnet/sdk' // Imagem Docker com o SDK .NET instalado
+            image 'mcr.microsoft.com/dotnet/sdk:5.0'
+            label 'node'
         }
     }
     stages {
