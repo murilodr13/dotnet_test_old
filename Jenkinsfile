@@ -7,8 +7,13 @@ pipeline {
     stages {
         stage('Build') {
             steps {
-                sh 'dotnet restore' // Restaurar as dependências do projeto
-                sh 'dotnet build' // Compilar o projeto
+                // Clonar o repositório do GitHub
+                git 'https://github.com/murilodr13/dotnet_test'
+                // Navegar para o diretório do projeto
+                dir('dotnet_test') {
+                    sh 'dotnet restore' // Restaurar as dependências do projeto
+                    sh 'dotnet build' // Compilar o projeto
+                }
             }
         }
         stage('Test') {
@@ -54,4 +59,3 @@ pipeline {
         }
     }
 }
-
