@@ -5,13 +5,6 @@ pipeline {
         }
     }
     stages {
-        stage('Checkout') {
-            steps {
-                checkout([$class: 'GitSCM',
-                          branches: [[name: '*/main']],
-                          userRemoteConfigs: [[url: 'https://github.com/murilodr13/dotnet_test.git']]])
-            }
-        }
         stage('Build') {
             steps {
                 // Clonar o repositório do GitHub
