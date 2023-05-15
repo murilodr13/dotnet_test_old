@@ -10,8 +10,6 @@ namespace MeuProjeto
         {
             Console.WriteLine("Hello, World!");
 
-            // Código adicional do seu projeto
-
             // Gere um arquivo ZIP contendo o executável como artefato
             string artifactPath = Path.Combine(Environment.CurrentDirectory, "artifacts");
             Directory.CreateDirectory(artifactPath);
