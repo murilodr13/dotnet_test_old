@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Aponte para a mesma versão de .NET do projeto principal -->
+    <TargetFramework>net7.0</TargetFramework>
+
+    <!-- Esse projeto de testes não será empacotável -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- SDK de testes do .NET -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.7.6" />
+
+    <!-- Framework de testes NUnit -->
+    <PackageReference Include="NUnit" Version="3.13.3" />
+
+    <!-- Adapter para integrar NUnit ao dotnet test -->
+    <PackageReference Include="NUnit3TestAdapter" Version="4.4.1" />
+
+    <!-- Opcional: coletor de cobertura Coverlet -->
+    <PackageReference Include="coverlet.collector" Version="3.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Referência ao projeto principal (para testar Program.Main) -->
+    <ProjectReference Include="..\dotnet_test_old.csproj" />
+  </ItemGroup>
+
+</Project>

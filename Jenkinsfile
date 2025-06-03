@@ -24,6 +24,31 @@ pipeline {
                 sh 'dotnet build --configuration Release'
             }
         }
+        stage('Tests') {
+            steps {
+                sh 'dotnet test Tests/dotnet_test_old.Tests.csproj --logger "trx;LogFileName=teste-results.trx" --results-directory TestResults'
+            }
+            post {
+                always {
+                    junit '**/TestResults/*.trx'
+                }
+            }
+        }
+        stage('BuildArtifact'){
+            steps {
+                echo 'Empacotando executáveis em ZIP...'
+                sh '''
+                    mkdir -p artifacts
+                    dotnet publish dotnet_test_old.csproj -c Release -o publish
+                    zip -r artifacts/dotnet_test_old.zip publish
+                '''
+            }
+            post {
+                success{
+                    archiveArtifacts artifacts: 'artifacts/*.zip', fingerprint: true
+                }
+            }
+        }
         stage('Run') {
             steps {
                 echo 'Executando aplicação Hello World...'
