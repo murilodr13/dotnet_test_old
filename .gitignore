@@ -1,0 +1,12 @@
+# Build output
+bin/
+obj/
+
+# Arquivos de usuário do IDE (Visual Studio, Rider, etc)
+*.user
+*.suo
+*.userosscache
+*.rsuser
+
+# Pastas geradas pelo Visual Studio Code
+.vscode/
