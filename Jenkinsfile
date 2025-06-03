@@ -26,18 +26,11 @@ pipeline {
         }
         stage('Tests') {
             steps {
-                sh '''
-                    dotnet tool install --global trx2junit --version 1.3.0
-                    export PATH="$PATH:~/.dotnet/tools"
-                    
-                    dotnet test Tests/dotnet_test_old.Tests.csproj --logger \"trx;LogFileName=teste-results.trx\" --results-directory TestResults
-                    
-                    trx2junit --trx TestResults/teste-results.trx --output TestResults/junit.xml
-                '''
+                sh 'dotnet test Tests/dotnet_test_old.Tests.csproj --logger \"trx;LogFileName=teste-results.trx\" --results-directory TestResults'
             }
             post {
                 always {
-                    junit 'TestResults/junit.xml'
+                    mstest testResultsFile: 'TestResults/*.trx'
                 }
             }
         }
