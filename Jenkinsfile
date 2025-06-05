@@ -53,7 +53,7 @@ pipeline {
                 sh '''
                     mkdir -p artifacts
                     dotnet publish dotnet_test_old.csproj -c Release -o publish
-                    zip -r artifacts/dotnet_test_old.zip publish
+                    tar -czf artifacts/dotnet_test_old.tar.gz -C publish .
                 '''
             }
             post {
