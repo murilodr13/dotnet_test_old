@@ -6,7 +6,7 @@ pipeline {
         }
     }
     environment {
-        DOTNET_CLI_HOME='/tmp/dotnet_home'
+        DOTNET_CLI_HOME = '/tmp/dotnet_home'
     }
     stages {
         stage('Checkout') {
@@ -15,53 +15,64 @@ pipeline {
                 checkout scm
             }
         }
-        stage('Prepare .NET Home'){
+
+        stage('Prepare .NET Home') {
             steps {
-                echo 'Preparando diretório .NET Home...'
+                // Cria pasta para ~/.dotnet e evita que o .NET CLI tente escrever em /.
                 sh 'mkdir -p $DOTNET_CLI_HOME'
             }
         }
+
         stage('Restore') {
             steps {
                 echo 'Restaurando pacotes NuGet...'
                 sh 'dotnet restore'
             }
         }
+
         stage('Build') {
             steps {
-                echo 'Compilando aplicação...'
-                sh 'dotnet build --configuration Release'
+                echo 'Compilando aplicação em Release...'
+                sh 'dotnet build dotnet_test_old.csproj --configuration Release'
             }
         }
-        stage('Tests') {
+
+        stage('Testes') {
             steps {
-                sh 'dotnet test Tests/dotnet_test_old.Tests.csproj --logger \"trx;LogFileName=teste-results.trx\" --results-directory TestResults'
+                echo 'Executando testes automatizados com dotnet test...'
+                // 1) Gera o arquivo .trx em TestResults/
+                sh 'dotnet test Tests/dotnet_test_old.Tests.csproj --logger "trx;LogFileName=teste-results.trx" --results-directory TestResults'
+                // 2) Ajusta permissões para leitura/escrita e troca o dono para jenkins (UID 1000)
                 sh '''
-                    chmod -R a+rw TestResults
-                    chown -R 1000:1000 TestResults
+                  chmod -R a+rw TestResults
+                  chown -R 1000:1000 TestResults
                 '''
             }
             post {
                 always {
+                    // Publica o .trx usando o plugin MSTest
                     mstest testResultsFile: 'TestResults/*.trx'
                 }
             }
         }
-        stage('BuildArtifact'){
+
+        stage('Empacotar Artefatos') {
             steps {
-                echo 'Empacotando executáveis em ZIP...'
+                echo 'Empacotando executáveis em TAR.GZ...'
                 sh '''
-                    mkdir -p artifacts
-                    dotnet publish dotnet_test_old.csproj -c Release -o publish
-                    tar -czf artifacts/dotnet_test_old.tar.gz -C publish .
+                  mkdir -p artifacts
+                  dotnet publish dotnet_test_old.csproj -c Release -o publish
+                  tar -czf artifacts/dotnet_test_old.tar.gz -C publish .
                 '''
             }
             post {
-                success{
-                    archiveArtifacts artifacts: 'artifacts/*.zip', fingerprint: true
+                success {
+                    // Arquiva o .tar.gz como artefato
+                    archiveArtifacts artifacts: 'artifacts/dotnet_test_old.tar.gz', fingerprint: true
                 }
             }
         }
+
         stage('Run') {
             steps {
                 echo 'Executando aplicação Hello World...'
@@ -71,7 +82,7 @@ pipeline {
     }
     post {
         success {
-            echo 'Pipeline executado com sucesso!'
+            echo 'Pipeline finalizado com sucesso!'
         }
         failure {
             echo 'Pipeline falhou. Verifique os logs para detalhes.'
