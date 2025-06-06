@@ -78,11 +78,17 @@ pipeline {
             steps {
                 echo 'Gerando token no SonarQube via API…'
                 sh '''
-                    RESPONSE=$(docker run --rm curlimages/curl:latest -s -u admin:admin -X POST "http://localhost:9000/api/user_tokens/generate" -d "name=jenkins-auto-token"
+                    # roda um container temporário com curl para chamar a API do SonarQube
+                    RESPONSE=$(docker run --rm curlimages/curl:latest -s -u admin:admin \
+                    -X POST "http://localhost:9000/api/user_tokens/generate" \
+                    -d "name=jenkins-auto-token")
+                    
+                    # extrai apenas o campo "token" do JSON retornado
                     TOKEN=$(echo "$RESPONSE" | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+                    
                     echo "Token gerado: $TOKEN"
                     echo "$TOKEN" > sonar-generated.token
-                    '''
+                '''
             }
         }
 
