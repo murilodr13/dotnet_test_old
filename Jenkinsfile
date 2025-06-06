@@ -68,7 +68,7 @@ pipeline {
                 sh 'docker rm -f sonarqube || true'
 
                 echo 'Iniciando novo container SonarQube...'
-                sh 'docker run -d --name sonarqube -u root:root -p 9000:9000 sonarqube:lts'
+                sh 'docker run -d --name sonarqube -p 9000:9000 sonarqube:lts'
 
                 echo 'Aguardando SonarQube ficar disponível…'
                 // Opção “mais simples”: sleep mais longo
