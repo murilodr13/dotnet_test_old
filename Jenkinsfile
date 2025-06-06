@@ -1,10 +1,13 @@
 pipeline {
-
     agent none
 
     environment {
         DOTNET_CLI_HOME = '/tmp/dotnet_home'
+        // Aqui, altere para o ID da credencial do tipo “Secret Text” que contém seu token SonarQube
         SONAR_TOKEN     = credentials('sonar-token')
+        // URL do SonarQube que já está de pé
+        SONAR_HOST_URL  = 'http://localhost:9000'
+        SONAR_PROJECT_KEY = 'dotnet_test_old'
     }
 
     stages {
@@ -59,17 +62,6 @@ pipeline {
             }
         }
 
-        stage('Start SonarQube') {
-            agent any
-            steps {
-                echo 'Iniciando container SonarQube local...'
-
-                sh 'docker run -d --name sonarqube -p 9000:9000 sonarqube:lts'
-                echo 'Aguardando SonarQube ficar disponível (aprox. 60s)...'
-                sh 'sleep 60'
-            }
-        }
-
         stage('SonarQube Analysis') {
             agent {
                 docker {
@@ -78,20 +70,26 @@ pipeline {
                 }
             }
             steps {
-                echo 'Executando análise SonarQube no código .NET...'
-                sh 'dotnet tool install --global dotnet-sonarscanner --version 5.0.0'
+                echo 'Instalando SonarScanner para .NET...'
+                sh 'dotnet tool install --global dotnet-sonarscanner --version 5.0.0 || true'
                 sh 'export PATH="$PATH:/root/.dotnet/tools"'
 
+                echo "Iniciando scan SonarQube (begin) fazendo login em $SONAR_HOST_URL com token..."
                 sh """
                    dotnet sonarscanner begin \
-                     /k:"dotnet_test_old" \
-                     /d:sonar.host.url="http://localhost:9000" \
+                     /k:"$SONAR_PROJECT_KEY" \
+                     /d:sonar.host.url="$SONAR_HOST_URL" \
                      /d:sonar.login="$SONAR_TOKEN"
                 """
+
+                echo 'Rebuild da solução para coletar dados de análise...'
                 sh 'dotnet build dotnet_test_old.csproj --configuration Release'
-                sh 'dotnet sonarscanner end /d:sonar.login="$SONAR_TOKEN"'
+
+                echo 'Finalizando análise SonarQube (end)...'
+                sh "dotnet sonarscanner end /d:sonar.login=\"$SONAR_TOKEN\""
             }
         }
+
         stage('Testes') {
             agent {
                 docker {
@@ -100,8 +98,10 @@ pipeline {
                 }
             }
             steps {
-                echo 'Executando testes automatizados com dotnet test...'
+                echo 'Executando testes automatizados (dotnet test)...'
                 sh 'dotnet test Tests/dotnet_test_old.Tests.csproj --logger "trx;LogFileName=teste-results.trx" --results-directory TestResults'
+
+                echo 'Ajustando permissões para TestResults...'
                 sh '''
                   chmod -R a+rw TestResults
                   chown -R 1000:1000 TestResults
@@ -109,6 +109,7 @@ pipeline {
             }
             post {
                 always {
+                    echo 'Publicando resultados de teste (.trx) no Jenkins...'
                     mstest testResultsFile: 'TestResults/*.trx'
                 }
             }
@@ -122,7 +123,7 @@ pipeline {
                 }
             }
             steps {
-                echo 'Empacotando executáveis em TAR.GZ...'
+                echo 'Executando dotnet publish e compactando em tar.gz...'
                 sh '''
                   mkdir -p artifacts
                   dotnet publish dotnet_test_old.csproj -c Release -o publish
@@ -131,6 +132,7 @@ pipeline {
             }
             post {
                 success {
+                    echo 'Arquivando artifacts/dotnet_test_old.tar.gz no Jenkins...'
                     archiveArtifacts artifacts: 'artifacts/dotnet_test_old.tar.gz', fingerprint: true
                 }
             }
@@ -144,7 +146,7 @@ pipeline {
                 }
             }
             steps {
-                echo 'Executando aplicação Hello World...'
+                echo 'Executando dotnet run (Hello World)...'
                 sh 'dotnet run --project dotnet_test_old.csproj --configuration Release'
             }
         }
