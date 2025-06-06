@@ -2,11 +2,8 @@ pipeline {
     agent none
 
     environment {
-        DOTNET_CLI_HOME = '/tmp/dotnet_home'
-        // Caso você já tenha configurado manualmente um credential "sonar-token" no Jenkins,
-        // e queira usá-lo diretamente, mantenha esta linha. Se preferir gerar via API,
-        // remova ou comente esta credencial e leia o token gerado em disco (ver stage Generate Sonar Token).
-        SONAR_TOKEN     = credentials('sonar-token')
+        DOTNET_CLI_HOME       = '/tmp/dotnet_home'
+        SONAR_ADMIN_NEW_PASS  = credentials('sonar-admin-newpass')  
     }
 
     stages {
@@ -18,7 +15,7 @@ pipeline {
                 }
             }
             steps {
-                echo 'Realizando checkout do repositório...'
+                echo 'Realizando checkout do repositório…'
                 checkout scm
             }
         }
@@ -43,7 +40,7 @@ pipeline {
                 }
             }
             steps {
-                echo 'Restaurando pacotes NuGet...'
+                echo 'Restaurando pacotes NuGet…'
                 sh 'dotnet restore'
             }
         }
@@ -56,7 +53,7 @@ pipeline {
                 }
             }
             steps {
-                echo 'Compilando aplicação em Release...'
+                echo 'Compilando aplicação em Release…'
                 sh 'dotnet build dotnet_test_old.csproj --configuration Release'
             }
         }
@@ -64,29 +61,43 @@ pipeline {
         stage('Start SonarQube') {
             agent any
             steps {
-                echo 'Removendo container SonarQube antigo (se existir)...'
+                echo 'Removendo container SonarQube antigo (se existir)…'
                 sh 'docker rm -f sonarqube || true'
 
-                echo 'Iniciando novo container SonarQube...'
-                sh 'docker run -d --name sonarqube -p 9000:9000 sonarqube:lts'
+                echo 'Iniciando novo container SonarQube…'
+                sh 'docker run -d --name sonarqube -u root:root -p 9000:9000 sonarqube:lts'
 
                 echo 'Aguardando SonarQube ficar disponível…'
-                // Opção “mais simples”: sleep mais longo
-                // you can replace with: sleep 120
-                // Mas o recomendado em produção é esperar via curl em loop:
+                // Em vez de sleep fixo, podemos usar um loop que testa HTTP 200 repetidamente:
                 sh '''
-                    # Tenta até 20 vezes, a cada 5 segundos, até receber HTTP 200 do Sonar
                     for i in $(seq 1 20); do
-                      echo "Tentativa $i para conectar no SonarQube..."
-                      if curl --connect-timeout 5 -s -o /dev/null -w "%{http_code}" http://localhost:9000 | grep -q "^2"; then
-                        echo "SonarQube está pronto!"
+                      echo "Tentativa $i de conectar no SonarQube..."
+                      code=$(curl --connect-timeout 5 -s -o /dev/null -w "%{http_code}" http://localhost:9000)
+                      if [ "$code" -ge 200 ] && [ "$code" -lt 300 ]; then
+                        echo "SonarQube subiu com sucesso!"
                         exit 0
                       fi
-                      echo "Ainda não disponível, aguardando 5s…"
+                      echo "Ainda não está pronto (http_code=$code). Aguardando 5s..."
                       sleep 5
                     done
-                    echo "SonarQube não subiu em 100 segundos. Abandonando."
+                    echo "Erro: SonarQube não respondeu em tempo hábil."
                     exit 1
+                '''
+            }
+        }
+
+        stage('Change Sonar Admin Password') {
+            agent any
+            steps {
+                echo 'Alterando senha padrão “admin” para a nova senha segura…'
+                sh '''
+                    # Se você guardou a senha antiga em credencial, use "-u admin:${SONAR_ADMIN_OLD_PASS}"
+                    # Caso confie que a senha antiga é “admin”, basta:
+                    docker run --rm curlimages/curl:latest -s -u admin:admin \
+                      -X POST "http://localhost:9000/api/users/change_password" \
+                      -d "login=admin" \
+                      -d "previousPassword=admin" \
+                      -d "newPassword=${SONAR_ADMIN_NEW_PASS}"
                 '''
             }
         }
@@ -96,26 +107,24 @@ pipeline {
             steps {
                 echo 'Gerando token no SonarQube via API…'
                 sh '''
-                    # Aqui chamamos a API de geração de token. 
-                    # Se você já criou e salvou manualmente no Jenkins (credencial 'sonar-token'),
-                    # basta comentar estas linhas e usar diretamente SONAR_TOKEN.
-                    RESPONSE=$(docker run --rm curlimages/curl:latest -s -u admin:admin \
-                        -X POST "http://localhost:9000/api/user_tokens/generate" \
-                        -d "name=jenkins-auto-token")
+                    RESPONSE=$(docker run --rm curlimages/curl:latest -s -u admin:${SONAR_ADMIN_NEW_PASS} \
+                      -X POST "http://localhost:9000/api/user_tokens/generate" \
+                      -d "name=jenkins-auto-token")
                     
                     if [ -z "$RESPONSE" ]; then
-                      echo "ERRO: resposta vazia ao gerar token SonarQube. Verifique se o Sonar subiu corretamente."
+                      echo "ERRO: resposta vazia ao gerar token SonarQube. Verifique se a senha já foi alterada com sucesso."
                       exit 1
                     fi
-                    
+
+                    # Extrai o campo "token" do JSON retornado: {"name":"jenkins-auto-token","token":"<o_token_aqui>"}
                     TOKEN=$(echo "$RESPONSE" | grep -o '"token":"[^"]*' | cut -d'"' -f4)
                     if [ -z "$TOKEN" ]; then
-                      echo "ERRO: não conseguiu extrair campo 'token' do JSON retornado:"
+                      echo "ERRO: não conseguiu extrair token do JSON:"
                       echo "$RESPONSE"
                       exit 1
                     fi
 
-                    echo "Token gerado pelo SonarQube: $TOKEN"
+                    echo "Token gerado: $TOKEN"
                     echo "$TOKEN" > sonar-generated.token
                 '''
             }
@@ -129,7 +138,6 @@ pipeline {
                 }
             }
             steps {
-                // Caso queira usar o token gerado dinamicamente, lê-lo de arquivo:
                 sh 'export SONAR_TOKEN=$(cat sonar-generated.token)'
 
                 echo 'Instalando SonarScanner para .NET…'
@@ -162,8 +170,7 @@ pipeline {
             steps {
                 echo 'Executando testes com dotnet test…'
                 sh 'dotnet test Tests/dotnet_test_old.Tests.csproj --logger "trx;LogFileName=teste-results.trx" --results-directory TestResults'
-
-                echo 'Ajustando permissões em TestResults para publicação…'
+                echo 'Ajustando permissões para publicar resultados…'
                 sh '''
                   chmod -R a+rw TestResults
                   chown -R 1000:1000 TestResults
