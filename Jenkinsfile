@@ -3,6 +3,9 @@ pipeline {
 
     environment {
         DOTNET_CLI_HOME = '/tmp/dotnet_home'
+        // Caso você já tenha configurado manualmente um credential "sonar-token" no Jenkins,
+        // e queira usá-lo diretamente, mantenha esta linha. Se preferir gerar via API,
+        // remova ou comente esta credencial e leia o token gerado em disco (ver stage Generate Sonar Token).
         SONAR_TOKEN     = credentials('sonar-token')
     }
 
@@ -60,7 +63,6 @@ pipeline {
 
         stage('Start SonarQube') {
             agent any
-
             steps {
                 echo 'Removendo container SonarQube antigo (se existir)...'
                 sh 'docker rm -f sonarqube || true'
@@ -68,8 +70,24 @@ pipeline {
                 echo 'Iniciando novo container SonarQube...'
                 sh 'docker run -d --name sonarqube -u root:root -p 9000:9000 sonarqube:lts'
 
-                echo 'Aguardando SonarQube ficar disponível (60s)...'
-                sh 'sleep 60'
+                echo 'Aguardando SonarQube ficar disponível…'
+                // Opção “mais simples”: sleep mais longo
+                // you can replace with: sleep 120
+                // Mas o recomendado em produção é esperar via curl em loop:
+                sh '''
+                    # Tenta até 20 vezes, a cada 5 segundos, até receber HTTP 200 do Sonar
+                    for i in $(seq 1 20); do
+                      echo "Tentativa $i para conectar no SonarQube..."
+                      if curl --connect-timeout 5 -s -o /dev/null -w "%{http_code}" http://localhost:9000 | grep -q "^2"; then
+                        echo "SonarQube está pronto!"
+                        exit 0
+                      fi
+                      echo "Ainda não disponível, aguardando 5s…"
+                      sleep 5
+                    done
+                    echo "SonarQube não subiu em 100 segundos. Abandonando."
+                    exit 1
+                '''
             }
         }
 
@@ -78,15 +96,26 @@ pipeline {
             steps {
                 echo 'Gerando token no SonarQube via API…'
                 sh '''
-                    # roda um container temporário com curl para chamar a API do SonarQube
+                    # Aqui chamamos a API de geração de token. 
+                    # Se você já criou e salvou manualmente no Jenkins (credencial 'sonar-token'),
+                    # basta comentar estas linhas e usar diretamente SONAR_TOKEN.
                     RESPONSE=$(docker run --rm curlimages/curl:latest -s -u admin:admin \
-                    -X POST "http://localhost:9000/api/user_tokens/generate" \
-                    -d "name=jenkins-auto-token")
+                        -X POST "http://localhost:9000/api/user_tokens/generate" \
+                        -d "name=jenkins-auto-token")
                     
-                    # extrai apenas o campo "token" do JSON retornado
+                    if [ -z "$RESPONSE" ]; then
+                      echo "ERRO: resposta vazia ao gerar token SonarQube. Verifique se o Sonar subiu corretamente."
+                      exit 1
+                    fi
+                    
                     TOKEN=$(echo "$RESPONSE" | grep -o '"token":"[^"]*' | cut -d'"' -f4)
-                    
-                    echo "Token gerado: $TOKEN"
+                    if [ -z "$TOKEN" ]; then
+                      echo "ERRO: não conseguiu extrair campo 'token' do JSON retornado:"
+                      echo "$RESPONSE"
+                      exit 1
+                    fi
+
+                    echo "Token gerado pelo SonarQube: $TOKEN"
                     echo "$TOKEN" > sonar-generated.token
                 '''
             }
@@ -100,14 +129,14 @@ pipeline {
                 }
             }
             steps {
-                echo 'Instalando SonarScanner para .NET...'
-                sh 'cp sonar-generated.token /tmp/sonar-token.txt'
-                sh 'export SONAR_TOKEN=$(cat /tmp/sonar-token.txt)'
+                // Caso queira usar o token gerado dinamicamente, lê-lo de arquivo:
+                sh 'export SONAR_TOKEN=$(cat sonar-generated.token)'
 
+                echo 'Instalando SonarScanner para .NET…'
                 sh 'dotnet tool install --global dotnet-sonarscanner --version 5.0.0'
                 sh 'export PATH="$PATH:/root/.dotnet/tools"'
 
-                echo 'Executando dotnet-sonarscanner begin...'
+                echo 'Executando dotnet-sonarscanner begin…'
                 sh """
                    dotnet sonarscanner begin \
                      /k:"dotnet_test_old" \
@@ -115,10 +144,10 @@ pipeline {
                      /d:sonar.login="$SONAR_TOKEN"
                 """
 
-                echo 'Rebuild da solução para coletar dados de análise...'
+                echo 'Rebuild da solução para coletar dados de análise…'
                 sh 'dotnet build dotnet_test_old.csproj --configuration Release'
 
-                echo 'Finalizando análise SonarQube (dotnet-sonarscanner end)...'
+                echo 'Finalizando análise SonarQube (dotnet-sonarscanner end)…'
                 sh 'dotnet sonarscanner end /d:sonar.login="$SONAR_TOKEN"'
             }
         }
@@ -131,10 +160,10 @@ pipeline {
                 }
             }
             steps {
-                echo 'Executando testes com dotnet test...'
+                echo 'Executando testes com dotnet test…'
                 sh 'dotnet test Tests/dotnet_test_old.Tests.csproj --logger "trx;LogFileName=teste-results.trx" --results-directory TestResults'
 
-                echo 'Ajustando permissões em TestResults para publicação...'
+                echo 'Ajustando permissões em TestResults para publicação…'
                 sh '''
                   chmod -R a+rw TestResults
                   chown -R 1000:1000 TestResults
@@ -142,7 +171,7 @@ pipeline {
             }
             post {
                 always {
-                    echo 'Publicando resultados de teste (.trx) no Jenkins...'
+                    echo 'Publicando resultados de teste (.trx) no Jenkins…'
                     mstest testResultsFile: 'TestResults/*.trx'
                 }
             }
@@ -156,7 +185,7 @@ pipeline {
                 }
             }
             steps {
-                echo 'Executando dotnet publish e compactando em tar.gz...'
+                echo 'Executando dotnet publish e compactando em tar.gz…'
                 sh '''
                   mkdir -p artifacts
                   dotnet publish dotnet_test_old.csproj -c Release -o publish
@@ -165,7 +194,7 @@ pipeline {
             }
             post {
                 success {
-                    echo 'Arquivando artifacts/dotnet_test_old.tar.gz no Jenkins...'
+                    echo 'Arquivando artifacts/dotnet_test_old.tar.gz no Jenkins…'
                     archiveArtifacts artifacts: 'artifacts/dotnet_test_old.tar.gz', fingerprint: true
                 }
             }
@@ -179,7 +208,7 @@ pipeline {
                 }
             }
             steps {
-                echo 'Executando dotnet run (Hello World)...'
+                echo 'Executando dotnet run (Hello World)…'
                 sh 'dotnet run --project dotnet_test_old.csproj --configuration Release'
             }
         }
@@ -187,7 +216,7 @@ pipeline {
         stage('Stop SonarQube') {
             agent any
             steps {
-                echo 'Parando e removendo container SonarQube...'
+                echo 'Parando e removendo container SonarQube…'
                 sh 'docker stop sonarqube || true'
                 sh 'docker rm sonarqube   || true'
             }
