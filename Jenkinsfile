@@ -81,7 +81,7 @@ pipeline {
                 }
             }
             steps {
-                echo 'Instalando SonarScanner para .NET...',
+                echo 'Instalando SonarScanner para .NET...'
                 sh 'dotnet tool install --global dotnet-sonarscanner --version 5.0.0'
                 sh 'export PATH="$PATH:/root/.dotnet/tools"'
 
