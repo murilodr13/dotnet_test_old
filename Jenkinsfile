@@ -2,11 +2,8 @@ pipeline {
     agent none
 
     environment {
-        // Onde o .NET vai instalar as tools globais
         DOTNET_CLI_HOME   = '/tmp/dotnet_home'
-        // Credencial “Secret Text” contendo o token do SonarQube (você já criou manualmente)
         SONAR_TOKEN       = credentials('sonar-token')
-        // URL do SonarQube que já está rodando (não vamos mais subir container aqui)
         SONAR_HOST_URL    = 'http://localhost:9000'
         SONAR_PROJECT_KEY = 'dotnet_test_old'
     }
@@ -71,14 +68,14 @@ pipeline {
                 }
             }
             steps {
-                echo 'Executando análise SonarQube (begin → build → end) num único bloco...'
+                echo 'Executando análise SonarQube (begin → build → end)...'
                 sh '''#!/usr/bin/env bash
                    set -e
 
-                   # 1) Instala (ou mantém instalada) a ferramenta global dotnet-sonarscanner
-                   dotnet tool install --global dotnet-sonarscanner --version 5.0.0 || true
+                   # 1) Instala (ou mantém instalada) a ferramenta global dotnet-sonarscanner versão compatível com .NET 7
+                   dotnet tool install --global dotnet-sonarscanner --version 5.2.0 || true
 
-                   # 2) Ajusta o PATH para incluir a pasta correta (/tmp/dotnet_home/.dotnet/tools)
+                   # 2) Ajusta o PATH para incluir o diretório onde a ferramenta foi instalada
                    export PATH="$PATH:$DOTNET_CLI_HOME/.dotnet/tools"
 
                    # 3) Inicia o SonarScanner (begin)
