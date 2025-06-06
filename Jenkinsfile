@@ -60,10 +60,15 @@ pipeline {
 
         stage('Start SonarQube') {
             agent any
+
             steps {
-                echo 'Iniciando container SonarQube local...'
+                echo 'Removendo container SonarQube antigo (se existir)...'
+                sh 'docker rm -f sonarqube || true'
+
+                echo 'Iniciando novo container SonarQube...'
                 sh 'docker run -d --name sonarqube -p 9000:9000 sonarqube:lts'
-                echo 'Aguardando SonarQube ficar disponível (aprox. 60s)...'
+
+                echo 'Aguardando SonarQube ficar disponível (60s)...'
                 sh 'sleep 60'
             }
         }
@@ -76,18 +81,22 @@ pipeline {
                 }
             }
             steps {
-                echo 'Executando análise SonarQube no código .NET...'
+                echo 'Instalando SonarScanner para .NET...',
                 sh 'dotnet tool install --global dotnet-sonarscanner --version 5.0.0'
                 sh 'export PATH="$PATH:/root/.dotnet/tools"'
 
+                echo 'Executando dotnet-sonarscanner begin...'
                 sh """
                    dotnet sonarscanner begin \
                      /k:"dotnet_test_old" \
                      /d:sonar.host.url="http://localhost:9000" \
                      /d:sonar.login="$SONAR_TOKEN"
                 """
+
+                echo 'Rebuild da solução para coletar dados de análise...'
                 sh 'dotnet build dotnet_test_old.csproj --configuration Release'
 
+                echo 'Finalizando análise SonarQube (dotnet-sonarscanner end)...'
                 sh 'dotnet sonarscanner end /d:sonar.login="$SONAR_TOKEN"'
             }
         }
@@ -100,8 +109,10 @@ pipeline {
                 }
             }
             steps {
-                echo 'Executando testes automatizados com dotnet test...'
+                echo 'Executando testes com dotnet test...'
                 sh 'dotnet test Tests/dotnet_test_old.Tests.csproj --logger "trx;LogFileName=teste-results.trx" --results-directory TestResults'
+
+                echo 'Ajustando permissões em TestResults para publicação...'
                 sh '''
                   chmod -R a+rw TestResults
                   chown -R 1000:1000 TestResults
@@ -109,6 +120,7 @@ pipeline {
             }
             post {
                 always {
+                    echo 'Publicando resultados de teste (.trx) no Jenkins...'
                     mstest testResultsFile: 'TestResults/*.trx'
                 }
             }
@@ -122,7 +134,7 @@ pipeline {
                 }
             }
             steps {
-                echo 'Empacotando executáveis em TAR.GZ...'
+                echo 'Executando dotnet publish e compactando em tar.gz...'
                 sh '''
                   mkdir -p artifacts
                   dotnet publish dotnet_test_old.csproj -c Release -o publish
@@ -131,6 +143,7 @@ pipeline {
             }
             post {
                 success {
+                    echo 'Arquivando artifacts/dotnet_test_old.tar.gz no Jenkins...'
                     archiveArtifacts artifacts: 'artifacts/dotnet_test_old.tar.gz', fingerprint: true
                 }
             }
@@ -144,19 +157,22 @@ pipeline {
                 }
             }
             steps {
-                echo 'Executando aplicação Hello World...'
+                echo 'Executando dotnet run (Hello World)...'
                 sh 'dotnet run --project dotnet_test_old.csproj --configuration Release'
+            }
+        }
+
+        stage('Stop SonarQube') {
+            agent any
+            steps {
+                echo 'Parando e removendo container SonarQube...'
+                sh 'docker stop sonarqube || true'
+                sh 'docker rm sonarqube   || true'
             }
         }
     }
 
     post {
-        always {
-            script {
-                sh 'docker stop sonarqube || true'
-                sh 'docker rm sonarqube || true'
-            }
-        }
         success {
             echo 'Pipeline finalizado com sucesso!'
         }
