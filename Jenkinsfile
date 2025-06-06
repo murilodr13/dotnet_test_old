@@ -2,11 +2,11 @@ pipeline {
     agent none
 
     environment {
-        DOTNET_CLI_HOME = '/tmp/dotnet_home'
-        // Aqui, altere para o ID da credencial do tipo “Secret Text” que contém seu token SonarQube
-        SONAR_TOKEN     = credentials('sonar-token')
-        // URL do SonarQube que já está de pé
-        SONAR_HOST_URL  = 'http://localhost:9000'
+        DOTNET_CLI_HOME   = '/tmp/dotnet_home'
+        // ID da credencial tipo “Secret Text” que contém o token do SonarQube
+        SONAR_TOKEN       = credentials('sonar-token')
+        // URL do SonarQube que já está rodando (não vamos subir container aqui)
+        SONAR_HOST_URL    = 'http://localhost:9000'
         SONAR_PROJECT_KEY = 'dotnet_test_old'
     }
 
@@ -70,23 +70,28 @@ pipeline {
                 }
             }
             steps {
-                echo 'Instalando SonarScanner para .NET...'
-                sh 'dotnet tool install --global dotnet-sonarscanner --version 5.0.0 || true'
-                sh 'export PATH="$PATH:/root/.dotnet/tools"'
+                echo 'Executando análise SonarQube (begin → build → end) num único bloco...'
+                sh '''#!/usr/bin/env bash
+                   set -e
 
-                echo "Iniciando scan SonarQube (begin) fazendo login em $SONAR_HOST_URL com token..."
-                sh """
+                   # 1) Instala (ou atualiza) o dotnet-sonarscanner globalmente
+                   dotnet tool install --global dotnet-sonarscanner --version 5.0.0 || true
+
+                   # 2) Ajusta o PATH para incluir a pasta de ferramentas globais do usuário root
+                   export PATH="$PATH:/root/.dotnet/tools"
+
+                   # 3) Inicia o SonarScanner
                    dotnet sonarscanner begin \
-                     /k:"$SONAR_PROJECT_KEY" \
-                     /d:sonar.host.url="$SONAR_HOST_URL" \
-                     /d:sonar.login="$SONAR_TOKEN"
-                """
+                     /k:"'"$SONAR_PROJECT_KEY"'" \
+                     /d:sonar.host.url="'"$SONAR_HOST_URL"'" \
+                     /d:sonar.login="'"$SONAR_TOKEN"'"
 
-                echo 'Rebuild da solução para coletar dados de análise...'
-                sh 'dotnet build dotnet_test_old.csproj --configuration Release'
+                   # 4) Rebuild da solução para coletar métrica
+                   dotnet build dotnet_test_old.csproj --configuration Release
 
-                echo 'Finalizando análise SonarQube (end)...'
-                sh "dotnet sonarscanner end /d:sonar.login=\"$SONAR_TOKEN\""
+                   # 5) Finaliza/anexa resultados ao SonarQube (end)
+                   dotnet sonarscanner end /d:sonar.login="'"$SONAR_TOKEN"'"
+                '''
             }
         }
 
