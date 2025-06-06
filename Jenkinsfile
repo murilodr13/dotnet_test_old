@@ -66,10 +66,24 @@ pipeline {
                 sh 'docker rm -f sonarqube || true'
 
                 echo 'Iniciando novo container SonarQube...'
-                sh 'docker run -d --name sonarqube -p 9000:9000 sonarqube:lts'
+                sh 'docker run -d --name sonarqube -u root:root -p 9000:9000 sonarqube:lts'
 
                 echo 'Aguardando SonarQube ficar disponível (60s)...'
                 sh 'sleep 60'
+            }
+        }
+
+        stage('Generate Sonar Token') {
+            agent any
+            steps {
+                echo 'Gerando token no SonarQube via API…'
+                sh '''
+                apt-get update && apt-get install -y jq curl
+                RESPONSE=$(curl -s -u admin:admin -X POST "http://localhost:9000/api/user_tokens/generate" -d "name=jenkins-auto-token")
+                TOKEN=$(echo "$RESPONSE" | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+                echo "Token gerado: $TOKEN"
+                echo "$TOKEN" > sonar-generated.token
+                '''
             }
         }
 
@@ -82,6 +96,9 @@ pipeline {
             }
             steps {
                 echo 'Instalando SonarScanner para .NET...'
+                sh 'cp sonar-generated.token /tmp/sonar-token.txt'
+                sh 'export SONAR_TOKEN=$(cat /tmp/sonar-token.txt)'
+                
                 sh 'dotnet tool install --global dotnet-sonarscanner --version 5.0.0'
                 sh 'export PATH="$PATH:/root/.dotnet/tools"'
 
