@@ -3,16 +3,15 @@ pipeline {
 
     environment {
         DOTNET_CLI_HOME = '/tmp/dotnet_home'
-
-        // Se você criou uma credencial no Jenkins com ID "sonar-token", aqui a usamos:
-        SONAR_TOKEN = credentials('sonar-token')
+        SONAR_TOKEN     = credentials('sonar-token')
     }
+
     stages {
         stage('Checkout') {
             agent {
                 docker {
                     image 'mcr.microsoft.com/dotnet/sdk:7.0'
-                    args '-u root:root'
+                    args  '-u root:root'
                 }
             }
             steps {
@@ -25,11 +24,10 @@ pipeline {
             agent {
                 docker {
                     image 'mcr.microsoft.com/dotnet/sdk:7.0'
-                    args '-u root:root'
+                    args  '-u root:root'
                 }
             }
             steps {
-                // Garante que o .NET CLI não tente escrever em / como root
                 sh 'mkdir -p $DOTNET_CLI_HOME'
             }
         }
@@ -38,7 +36,7 @@ pipeline {
             agent {
                 docker {
                     image 'mcr.microsoft.com/dotnet/sdk:7.0'
-                    args '-u root:root'
+                    args  '-u root:root'
                 }
             }
             steps {
@@ -51,7 +49,7 @@ pipeline {
             agent {
                 docker {
                     image 'mcr.microsoft.com/dotnet/sdk:7.0'
-                    args '-u root:root'
+                    args  '-u root:root'
                 }
             }
             steps {
@@ -62,15 +60,10 @@ pipeline {
 
         stage('Start SonarQube') {
             agent any
-
             steps {
                 echo 'Iniciando container SonarQube local...'
-                // 1) Puxa e inicia o SonarQube (imagem oficial LTS)
                 sh 'docker run -d --name sonarqube -p 9000:9000 sonarqube:lts'
-
-                // 2) Aguarda alguns segundos para o SonarQube “subir”:
                 echo 'Aguardando SonarQube ficar disponível (aprox. 60s)...'
-                // Ajuste o tempo, se necessário; pode ser menor em máquinas rápidas.
                 sh 'sleep 60'
             }
         }
@@ -79,35 +72,23 @@ pipeline {
             agent {
                 docker {
                     image 'mcr.microsoft.com/dotnet/sdk:7.0'
-                    args '-u root:root'
+                    args  '-u root:root'
                 }
             }
             steps {
                 echo 'Executando análise SonarQube no código .NET...'
-
-                // 1) Instala o SonarScanner para .NET como tool global
                 sh 'dotnet tool install --global dotnet-sonarscanner --version 5.0.0'
-
-                // 2) Garante que ~/.dotnet/tools esteja no PATH
                 sh 'export PATH="$PATH:/root/.dotnet/tools"'
 
-                // 3) Executa SonarScanner Begin
                 sh """
                    dotnet sonarscanner begin \
                      /k:"dotnet_test_old" \
                      /d:sonar.host.url="http://localhost:9000" \
-                     /d:sonar.login="$SONAR_TOKEN" \
-                     /d:sonar.cs.opencover.reportsPaths="**/coverage.opencover.xml"
-                   """
-
-                // 4) Recompila o projeto para coletar dados de análise
+                     /d:sonar.login="$SONAR_TOKEN"
+                """
                 sh 'dotnet build dotnet_test_old.csproj --configuration Release'
 
-                // 5) Finaliza análise SonarQube
-                sh """
-                   dotnet sonarscanner end \
-                     /d:sonar.login="$SONAR_TOKEN"
-                   """
+                sh 'dotnet sonarscanner end /d:sonar.login="$SONAR_TOKEN"'
             }
         }
 
@@ -115,14 +96,12 @@ pipeline {
             agent {
                 docker {
                     image 'mcr.microsoft.com/dotnet/sdk:7.0'
-                    args '-u root:root'
+                    args  '-u root:root'
                 }
             }
             steps {
                 echo 'Executando testes automatizados com dotnet test...'
-                // 1) Gera o arquivo .trx em TestResults/
                 sh 'dotnet test Tests/dotnet_test_old.Tests.csproj --logger "trx;LogFileName=teste-results.trx" --results-directory TestResults'
-                // 2) Ajusta permissões e dono para jenkins (UID 1000:1000)
                 sh '''
                   chmod -R a+rw TestResults
                   chown -R 1000:1000 TestResults
@@ -130,7 +109,6 @@ pipeline {
             }
             post {
                 always {
-                    // Publica o .trx usando o plugin MSTest no Jenkins
                     mstest testResultsFile: 'TestResults/*.trx'
                 }
             }
@@ -140,7 +118,7 @@ pipeline {
             agent {
                 docker {
                     image 'mcr.microsoft.com/dotnet/sdk:7.0'
-                    args '-u root:root'
+                    args  '-u root:root'
                 }
             }
             steps {
@@ -162,7 +140,7 @@ pipeline {
             agent {
                 docker {
                     image 'mcr.microsoft.com/dotnet/sdk:7.0'
-                    args '-u root:root'
+                    args  '-u root:root'
                 }
             }
             steps {
@@ -175,8 +153,8 @@ pipeline {
     post {
         always {
             script {
-                echo 'Parando o container SonarQube...'
                 sh 'docker stop sonarqube || true'
+                sh 'docker rm sonarqube || true'
             }
         }
         success {
