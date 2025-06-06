@@ -7,6 +7,7 @@ pipeline {
     }
     environment {
         DOTNET_CLI_HOME = '/tmp/dotnet_home'
+        SONAR_TOKEN = credentials('sonar_token')
     }
     stages {
         stage('Checkout') {
@@ -36,6 +37,36 @@ pipeline {
                 sh 'dotnet build dotnet_test_old.csproj --configuration Release'
             }
         }
+
+        stage('Start SonarQube'){
+            steps {
+                echo 'Iniciando container SonarQube...'
+                sh 'docker run -d --name sonarqube -p 9000:9000 sonarqube:lts'
+                echo 'Aguardando SonarQube iniciar...'
+                sh 'sleep 60'
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                echo 'Executando análise de código com SonarQube...'
+                sh 'dotnet tool install --global dotnet-sonarscanner --version 5.0.0'
+                sh 'export PATH="$PATH:/root/.dotnet/tools"'
+                sh '''
+                    donet sonarscanner begin \
+                        /k:"dotnet_test_old" \
+                        /d:sonar.host.url="http://localhost:9000" \
+                        /d:sonar.login=$SONAR_TOKEN \
+                        /d:sonar.cs.opencover.reportsPaths="**/coverage.opencover.xml"
+                '''
+                sh 'dotnet build dotnet_test_old.csproj --configuration Release'
+                sh '''
+                    dotnet sonarscanner end \
+                        /d:sonar.login=$SONAR_TOKEN
+                '''	
+            }
+        }
+    
 
         stage('Testes') {
             steps {
@@ -81,6 +112,10 @@ pipeline {
         }
     }
     post {
+        always {
+            echo 'Destroying SonarQube container...'
+            sh 'docker stop sonarqube || true'
+        }
         success {
             echo 'Pipeline finalizado com sucesso!'
         }
