@@ -7,7 +7,9 @@ pipeline {
     }
     environment {
         DOTNET_CLI_HOME = '/tmp/dotnet_home'
-        SONAR_TOKEN = credentials('sonar_token')
+
+        // Se você criou uma credencial no Jenkins com ID "sonar-token", aqui a usamos:
+        SONAR_TOKEN = credentials('sonar-token')
     }
     stages {
         stage('Checkout') {
@@ -19,7 +21,7 @@ pipeline {
 
         stage('Prepare .NET Home') {
             steps {
-                // Cria pasta para ~/.dotnet e evita que o .NET CLI tente escrever em /.
+                // Garante que o .NET CLI não tente escrever em / como root
                 sh 'mkdir -p $DOTNET_CLI_HOME'
             }
         }
@@ -38,42 +40,55 @@ pipeline {
             }
         }
 
-        stage('Start SonarQube'){
+        stage('Start SonarQube') {
             steps {
-                echo 'Iniciando container SonarQube...'
+                echo 'Iniciando container SonarQube local...'
+                // 1) Puxa e inicia o SonarQube (imagem oficial LTS)
                 sh 'docker run -d --name sonarqube -p 9000:9000 sonarqube:lts'
-                echo 'Aguardando SonarQube iniciar...'
+
+                // 2) Aguarda alguns segundos para o SonarQube “subir”:
+                echo 'Aguardando SonarQube ficar disponível (aprox. 60s)...'
+                // Ajuste o tempo, se necessário; pode ser menor em máquinas rápidas.
                 sh 'sleep 60'
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
-                echo 'Executando análise de código com SonarQube...'
+                echo 'Executando análise SonarQube no código .NET...'
+
+                // 1) Instala o SonarScanner para .NET como tool global
                 sh 'dotnet tool install --global dotnet-sonarscanner --version 5.0.0'
+
+                // 2) Garante que ~/.dotnet/tools esteja no PATH
                 sh 'export PATH="$PATH:/root/.dotnet/tools"'
+
+                // 3) Executa SonarScanner Begin
                 sh """
-                    donet sonarscanner begin \
-                        /k:"dotnet_test_old" \
-                        /d:sonar.host.url="http://localhost:9000" \
-                        /d:sonar.login=$SONAR_TOKEN \
-                        /d:sonar.cs.opencover.reportsPaths="**/coverage.opencover.xml"
-                """
+                   dotnet sonarscanner begin \
+                     /k:"dotnet_test_old" \
+                     /d:sonar.host.url="http://localhost:9000" \
+                     /d:sonar.login="$SONAR_TOKEN" \
+                     /d:sonar.cs.opencover.reportsPaths="**/coverage.opencover.xml"
+                   """
+
+                // 4) Recompila o projeto para coletar dados de análise
                 sh 'dotnet build dotnet_test_old.csproj --configuration Release'
+
+                // 5) Finaliza análise SonarQube
                 sh """
-                    dotnet sonarscanner end \
-                        /d:sonar.login=$SONAR_TOKEN
-                """
+                   dotnet sonarscanner end \
+                     /d:sonar.login="$SONAR_TOKEN"
+                   """
             }
         }
-    
 
         stage('Testes') {
             steps {
                 echo 'Executando testes automatizados com dotnet test...'
                 // 1) Gera o arquivo .trx em TestResults/
                 sh 'dotnet test Tests/dotnet_test_old.Tests.csproj --logger "trx;LogFileName=teste-results.trx" --results-directory TestResults'
-                // 2) Ajusta permissões para leitura/escrita e troca o dono para jenkins (UID 1000)
+                // 2) Ajusta permissões e dono para jenkins (UID 1000:1000)
                 sh '''
                   chmod -R a+rw TestResults
                   chown -R 1000:1000 TestResults
@@ -81,7 +96,7 @@ pipeline {
             }
             post {
                 always {
-                    // Publica o .trx usando o plugin MSTest
+                    // Publica o .trx usando o plugin MSTest no Jenkins
                     mstest testResultsFile: 'TestResults/*.trx'
                 }
             }
@@ -98,7 +113,6 @@ pipeline {
             }
             post {
                 success {
-                    // Arquiva o .tar.gz como artefato
                     archiveArtifacts artifacts: 'artifacts/dotnet_test_old.tar.gz', fingerprint: true
                 }
             }
@@ -111,16 +125,18 @@ pipeline {
             }
         }
     }
+
     post {
-        always {
-            echo 'Destroying SonarQube container...'
-            sh 'docker stop sonarqube || true'
-        }
         success {
             echo 'Pipeline finalizado com sucesso!'
         }
         failure {
             echo 'Pipeline falhou. Verifique os logs para detalhes.'
+        }
+        always {
+            sh '''
+              docker stop sonarqube || true
+            '''
         }
     }
 }
