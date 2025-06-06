@@ -1,10 +1,6 @@
 pipeline {
-    agent {
-        docker {
-            image 'mcr.microsoft.com/dotnet/sdk:7.0'
-            args '-u root:root'
-        }
-    }
+    agent none
+
     environment {
         DOTNET_CLI_HOME = '/tmp/dotnet_home'
 
@@ -13,6 +9,12 @@ pipeline {
     }
     stages {
         stage('Checkout') {
+            agent {
+                docker {
+                    image 'mcr.microsoft.com/dotnet/sdk:7.0'
+                    args '-u root:root'
+                }
+            }
             steps {
                 echo 'Realizando checkout do repositório...'
                 checkout scm
@@ -20,6 +22,12 @@ pipeline {
         }
 
         stage('Prepare .NET Home') {
+            agent {
+                docker {
+                    image 'mcr.microsoft.com/dotnet/sdk:7.0'
+                    args '-u root:root'
+                }
+            }
             steps {
                 // Garante que o .NET CLI não tente escrever em / como root
                 sh 'mkdir -p $DOTNET_CLI_HOME'
@@ -27,6 +35,12 @@ pipeline {
         }
 
         stage('Restore') {
+            agent {
+                docker {
+                    image 'mcr.microsoft.com/dotnet/sdk:7.0'
+                    args '-u root:root'
+                }
+            }
             steps {
                 echo 'Restaurando pacotes NuGet...'
                 sh 'dotnet restore'
@@ -34,6 +48,12 @@ pipeline {
         }
 
         stage('Build') {
+            agent {
+                docker {
+                    image 'mcr.microsoft.com/dotnet/sdk:7.0'
+                    args '-u root:root'
+                }
+            }
             steps {
                 echo 'Compilando aplicação em Release...'
                 sh 'dotnet build dotnet_test_old.csproj --configuration Release'
@@ -41,6 +61,8 @@ pipeline {
         }
 
         stage('Start SonarQube') {
+            agent any
+
             steps {
                 echo 'Iniciando container SonarQube local...'
                 // 1) Puxa e inicia o SonarQube (imagem oficial LTS)
@@ -54,6 +76,12 @@ pipeline {
         }
 
         stage('SonarQube Analysis') {
+            agent {
+                docker {
+                    image 'mcr.microsoft.com/dotnet/sdk:7.0'
+                    args '-u root:root'
+                }
+            }
             steps {
                 echo 'Executando análise SonarQube no código .NET...'
 
@@ -84,6 +112,12 @@ pipeline {
         }
 
         stage('Testes') {
+            agent {
+                docker {
+                    image 'mcr.microsoft.com/dotnet/sdk:7.0'
+                    args '-u root:root'
+                }
+            }
             steps {
                 echo 'Executando testes automatizados com dotnet test...'
                 // 1) Gera o arquivo .trx em TestResults/
@@ -103,6 +137,12 @@ pipeline {
         }
 
         stage('Empacotar Artefatos') {
+            agent {
+                docker {
+                    image 'mcr.microsoft.com/dotnet/sdk:7.0'
+                    args '-u root:root'
+                }
+            }
             steps {
                 echo 'Empacotando executáveis em TAR.GZ...'
                 sh '''
@@ -119,6 +159,12 @@ pipeline {
         }
 
         stage('Run') {
+            agent {
+                docker {
+                    image 'mcr.microsoft.com/dotnet/sdk:7.0'
+                    args '-u root:root'
+                }
+            }
             steps {
                 echo 'Executando aplicação Hello World...'
                 sh 'dotnet run --project dotnet_test_old.csproj --configuration Release'
@@ -127,16 +173,17 @@ pipeline {
     }
 
     post {
+        always {
+            script {
+                echo 'Parando o container SonarQube...'
+                sh 'docker stop sonarqube || true'
+            }
+        }
         success {
             echo 'Pipeline finalizado com sucesso!'
         }
         failure {
             echo 'Pipeline falhou. Verifique os logs para detalhes.'
-        }
-        always {
-            sh '''
-              docker stop sonarqube || true
-            '''
         }
     }
 }
