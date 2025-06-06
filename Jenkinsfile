@@ -2,10 +2,11 @@ pipeline {
     agent none
 
     environment {
+        // Onde o .NET vai instalar as tools globais
         DOTNET_CLI_HOME   = '/tmp/dotnet_home'
-        // ID da credencial tipo “Secret Text” que contém o token do SonarQube
+        // Credencial “Secret Text” contendo o token do SonarQube (você já criou manualmente)
         SONAR_TOKEN       = credentials('sonar-token')
-        // URL do SonarQube que já está rodando (não vamos subir container aqui)
+        // URL do SonarQube que já está rodando (não vamos mais subir container aqui)
         SONAR_HOST_URL    = 'http://localhost:9000'
         SONAR_PROJECT_KEY = 'dotnet_test_old'
     }
@@ -74,19 +75,19 @@ pipeline {
                 sh '''#!/usr/bin/env bash
                    set -e
 
-                   # 1) Instala (ou atualiza) o dotnet-sonarscanner globalmente
+                   # 1) Instala (ou mantém instalada) a ferramenta global dotnet-sonarscanner
                    dotnet tool install --global dotnet-sonarscanner --version 5.0.0 || true
 
-                   # 2) Ajusta o PATH para incluir a pasta de ferramentas globais do usuário root
-                   export PATH="$PATH:/root/.dotnet/tools"
+                   # 2) Ajusta o PATH para incluir a pasta correta (/tmp/dotnet_home/.dotnet/tools)
+                   export PATH="$PATH:$DOTNET_CLI_HOME/.dotnet/tools"
 
-                   # 3) Inicia o SonarScanner
+                   # 3) Inicia o SonarScanner (begin)
                    dotnet sonarscanner begin \
                      /k:"'"$SONAR_PROJECT_KEY"'" \
                      /d:sonar.host.url="'"$SONAR_HOST_URL"'" \
                      /d:sonar.login="'"$SONAR_TOKEN"'"
 
-                   # 4) Rebuild da solução para coletar métrica
+                   # 4) Rebuild da solução para coletar métricas
                    dotnet build dotnet_test_old.csproj --configuration Release
 
                    # 5) Finaliza/anexa resultados ao SonarQube (end)
